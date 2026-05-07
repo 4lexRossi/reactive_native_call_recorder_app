@@ -180,15 +180,19 @@ export default function RecordScreen({ navigation }) {
 
   async function handleSave() {
     if (!pendingRecording) return;
-    addRecording(pendingRecording);
-    setPendingRecording(null);
-    setDuration(0);
-    setCallerName('');
+    try {
+      await addRecording(pendingRecording);
+      setPendingRecording(null);
+      setDuration(0);
+      setCallerName('');
 
-    Alert.alert('Saved ✓', 'Recording saved successfully!', [
-      { text: 'View Recordings', onPress: () => navigation.navigate('Tabs') },
-      { text: 'Record Again', style: 'cancel' },
-    ]);
+      Alert.alert('Saved ✓', 'Recording saved successfully!', [
+        { text: 'View Recordings', onPress: () => navigation.navigate('Tabs') },
+        { text: 'Record Again', style: 'cancel' },
+      ]);
+    } catch (err) {
+      Alert.alert('Error', 'Could not save recording: ' + err.message);
+    }
   }
 
   function handleDiscard() {
