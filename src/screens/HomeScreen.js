@@ -56,7 +56,7 @@ export default function HomeScreen({ navigation }) {
   const waCount = recordings.filter(r => r.type === 'whatsapp').length;
 
   return (
-    <SafeAreaView style={styles.container} edges={['top']}>
+    <SafeAreaView style={styles.container} edges={['top', 'bottom']}>
       <GlassHeader />
 
       {/* Stats Row */}
