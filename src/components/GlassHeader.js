@@ -12,8 +12,8 @@ export default function GlassHeader() {
   return (
     <View style={styles.container}>
       <View style={styles.leftSection}>
-        <Image 
-          source={require('../../assets/icon.png')} 
+        <Image
+          source={require('../../assets/icon.png')}
           style={styles.logo}
         />
         <View>
