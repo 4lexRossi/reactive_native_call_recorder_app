@@ -1,5 +1,5 @@
 import React from 'react';
-import { View, Text, StyleSheet } from 'react-native';
+import { View, Text, StyleSheet, Image } from 'react-native';
 import { Ionicons } from '@expo/vector-icons';
 import { Colors, Spacing, Radius } from '../theme';
 
@@ -11,9 +11,15 @@ export default function GlassHeader() {
 
   return (
     <View style={styles.container}>
-      <View>
-        <Text style={styles.greeting}>{greeting}</Text>
-        <Text style={styles.title}>CallRecorder</Text>
+      <View style={styles.leftSection}>
+        <Image 
+          source={require('../../assets/icon.png')} 
+          style={styles.logo}
+        />
+        <View>
+          <Text style={styles.greeting}>{greeting}</Text>
+          <Text style={styles.title}>CallRecorder</Text>
+        </View>
       </View>
       <View style={styles.badge}>
         <View style={styles.dot} />
@@ -32,6 +38,16 @@ const styles = StyleSheet.create({
     paddingTop: Spacing.md,
     paddingBottom: Spacing.sm,
   },
+  leftSection: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 12,
+  },
+  logo: {
+    width: 44,
+    height: 44,
+    borderRadius: Radius.sm,
+  },
   greeting: {
     color: Colors.textMuted,
     fontSize: 13,
@@ -39,7 +55,7 @@ const styles = StyleSheet.create({
   },
   title: {
     color: Colors.text,
-    fontSize: 28,
+    fontSize: 24,
     fontWeight: '800',
     letterSpacing: -0.5,
   },

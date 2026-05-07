@@ -9,6 +9,7 @@ import {
   Platform,
   Alert,
   Easing,
+  Image,
 } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
 import { Ionicons, MaterialCommunityIcons } from '@expo/vector-icons';
@@ -236,7 +237,10 @@ export default function RecordScreen({ navigation }) {
         <TouchableOpacity onPress={() => navigation.goBack()} style={styles.backBtn}>
           <Ionicons name="chevron-back" size={24} color={Colors.text} />
         </TouchableOpacity>
-        <Text style={styles.headerTitle}>Call Recorder</Text>
+        <View style={styles.headerTitleRow}>
+          <Image source={require('../../assets/icon.png')} style={styles.headerLogo} />
+          <Text style={styles.headerTitle}>Call Recorder</Text>
+        </View>
         <View style={{ width: 40 }} />
       </View>
 
@@ -434,6 +438,16 @@ const styles = StyleSheet.create({
     color: Colors.text,
     fontSize: 18,
     fontWeight: '700',
+  },
+  headerTitleRow: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 8,
+  },
+  headerLogo: {
+    width: 28,
+    height: 28,
+    borderRadius: 6,
   },
   typeSwitcher: {
     flexDirection: 'row',
