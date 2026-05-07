@@ -4,7 +4,7 @@ import { NavigationContainer, DefaultTheme } from '@react-navigation/native';
 import { createNativeStackNavigator } from '@react-navigation/native-stack';
 import { createBottomTabNavigator } from '@react-navigation/bottom-tabs';
 import { Ionicons, MaterialCommunityIcons } from '@expo/vector-icons';
-import { SafeAreaProvider } from 'react-native-safe-area-context';
+import { SafeAreaProvider, useSafeAreaInsets } from 'react-native-safe-area-context';
 import { View, TouchableOpacity, StyleSheet } from 'react-native';
 
 import { RecordingsProvider } from './src/context/RecordingsContext';
@@ -30,11 +30,19 @@ const NavTheme = {
 };
 
 function TabNavigator() {
+  const insets = useSafeAreaInsets();
+  
   return (
     <Tab.Navigator
       screenOptions={({ route }) => ({
         headerShown: false,
-        tabBarStyle: styles.tabBar,
+        tabBarStyle: [
+          styles.tabBar,
+          {
+            height: (Platform.OS === 'ios' ? 88 : 64) + insets.bottom,
+            paddingBottom: insets.bottom > 0 ? insets.bottom : (Platform.OS === 'ios' ? 28 : 10),
+          }
+        ],
         tabBarActiveTintColor: Colors.accent,
         tabBarInactiveTintColor: Colors.textDim,
         tabBarLabelStyle: styles.tabLabel,
@@ -101,11 +109,12 @@ const styles = StyleSheet.create({
     backgroundColor: Colors.surface,
     borderTopColor: Colors.cardBorder,
     borderTopWidth: 1,
-    height: 60,
-    paddingBottom: 8,
+    paddingTop: 10,
+    elevation: 8,
   },
   tabLabel: {
     fontSize: 11,
     fontWeight: '600',
+    marginBottom: 4,
   },
 });
