@@ -27,6 +27,7 @@ export default function RecordScreen({ navigation }) {
   const [duration, setDuration] = useState(0);
   const [callerName, setCallerName] = useState('');
   const [recording, setRecording] = useState(null);
+  const [pendingRecording, setPendingRecording] = useState(null);
 
   const pulseAnim = useRef(new Animated.Value(1)).current;
   const waveAnims = useRef([...Array(5)].map(() => new Animated.Value(0.3))).current;
@@ -167,20 +168,41 @@ export default function RecordScreen({ navigation }) {
         size: await getFileSize(uri),
       };
 
-      addRecording(newRec);
+      setPendingRecording(newRec);
       setRecording(null);
       setIsRecording(false);
       setIsPaused(false);
-      setDuration(0);
-      setCallerName('');
-
-      Alert.alert('Saved ✓', 'Recording saved successfully!', [
-        { text: 'View Recordings', onPress: () => navigation.navigate('Tabs') },
-        { text: 'Record Again', style: 'cancel' },
-      ]);
     } catch (err) {
-      Alert.alert('Error', 'Could not save recording: ' + err.message);
+      Alert.alert('Error', 'Could not stop recording: ' + err.message);
     }
+  }
+
+  async function handleSave() {
+    if (!pendingRecording) return;
+    addRecording(pendingRecording);
+    setPendingRecording(null);
+    setDuration(0);
+    setCallerName('');
+
+    Alert.alert('Saved ✓', 'Recording saved successfully!', [
+      { text: 'View Recordings', onPress: () => navigation.navigate('Tabs') },
+      { text: 'Record Again', style: 'cancel' },
+    ]);
+  }
+
+  function handleDiscard() {
+    Alert.alert('Discard', 'Delete this recording?', [
+      { text: 'Keep', style: 'cancel' },
+      {
+        text: 'Discard',
+        style: 'destructive',
+        onPress: () => {
+          setPendingRecording(null);
+          setDuration(0);
+          setCallerName('');
+        },
+      },
+    ]);
   }
 
   async function getFileSize(uri) {
@@ -236,8 +258,8 @@ export default function RecordScreen({ navigation }) {
         </TouchableOpacity>
         <TouchableOpacity
           style={[styles.typeBtn, callType === 'whatsapp' && styles.typeBtnWa]}
-          onPress={() => !isRecording && setCallType('whatsapp')}
-          disabled={isRecording}
+          onPress={() => !isRecording && !pendingRecording && setCallType('whatsapp')}
+          disabled={isRecording || !!pendingRecording}
         >
           <MaterialCommunityIcons
             name="whatsapp"
@@ -281,27 +303,47 @@ export default function RecordScreen({ navigation }) {
         />
 
         {/* Mic Button */}
-        <Animated.View style={{ transform: [{ scale: pulseAnim }] }}>
-          <TouchableOpacity
-            style={[
-              styles.micBtn,
-              isRecording && {
-                backgroundColor:
-                  callType === 'whatsapp' ? Colors.whatsapp : Colors.recording,
-                shadowColor:
-                  callType === 'whatsapp' ? Colors.whatsapp : Colors.recording,
-              },
-            ]}
-            onPress={isRecording ? stopRecording : startRecording}
-            activeOpacity={0.85}
-          >
-            <Ionicons
-              name={isRecording ? 'stop' : 'mic'}
-              size={44}
-              color={Colors.white}
-            />
-          </TouchableOpacity>
-        </Animated.View>
+        {!pendingRecording ? (
+          <Animated.View style={{ transform: [{ scale: pulseAnim }] }}>
+            <TouchableOpacity
+              style={[
+                styles.micBtn,
+                isRecording && {
+                  backgroundColor:
+                    callType === 'whatsapp' ? Colors.whatsapp : Colors.recording,
+                  shadowColor:
+                    callType === 'whatsapp' ? Colors.whatsapp : Colors.recording,
+                },
+              ]}
+              onPress={isRecording ? stopRecording : startRecording}
+              activeOpacity={0.85}
+            >
+              <Ionicons
+                name={isRecording ? 'stop' : 'mic'}
+                size={44}
+                color={Colors.white}
+              />
+            </TouchableOpacity>
+          </Animated.View>
+        ) : (
+          <View style={styles.reviewActions}>
+            <TouchableOpacity 
+              style={[styles.actionBtn, { backgroundColor: Colors.red + '15', borderColor: Colors.red + '30' }]} 
+              onPress={handleDiscard}
+            >
+              <Ionicons name="trash-outline" size={32} color={Colors.red} />
+              <Text style={[styles.actionLabel, { color: Colors.red }]}>Discard</Text>
+            </TouchableOpacity>
+            
+            <TouchableOpacity 
+              style={[styles.actionBtn, styles.saveBtnLarge]} 
+              onPress={handleSave}
+            >
+              <Ionicons name="checkmark" size={40} color={Colors.white} />
+              <Text style={[styles.actionLabel, { color: Colors.white, fontSize: 16 }]}>Save Recording</Text>
+            </TouchableOpacity>
+          </View>
+        )}
 
         {/* Timer */}
         <View style={styles.timerBox}>
@@ -313,7 +355,9 @@ export default function RecordScreen({ navigation }) {
 
         {/* Status */}
         <Text style={styles.statusText}>
-          {!isRecording
+          {pendingRecording
+            ? 'Recording Finished'
+            : !isRecording
             ? 'Tap to Start Recording'
             : isPaused
             ? 'Recording Paused'
@@ -522,6 +566,36 @@ const styles = StyleSheet.create({
     color: Colors.text,
     fontSize: 13,
     fontWeight: '600',
+  },
+  reviewActions: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 20,
+    height: 140,
+  },
+  actionBtn: {
+    alignItems: 'center',
+    justifyContent: 'center',
+    padding: Spacing.md,
+    borderRadius: Radius.lg,
+    borderWidth: 1,
+    minWidth: 100,
+  },
+  saveBtnLarge: {
+    backgroundColor: Colors.green,
+    borderColor: Colors.green,
+    paddingHorizontal: Spacing.xl,
+    height: 120,
+    shadowColor: Colors.green,
+    shadowOffset: { width: 0, height: 4 },
+    shadowOpacity: 0.3,
+    shadowRadius: 10,
+    elevation: 8,
+  },
+  actionLabel: {
+    fontSize: 12,
+    fontWeight: '700',
+    marginTop: 8,
   },
   notice: {
     flexDirection: 'row',
