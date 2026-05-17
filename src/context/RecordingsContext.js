@@ -2,7 +2,7 @@ import { Audio, InterruptionModeAndroid, InterruptionModeIOS } from 'expo-av';
 import * as FileSystem from 'expo-file-system/legacy';
 import * as Notifications from 'expo-notifications';
 import { createContext, useContext, useEffect, useRef, useState } from 'react';
-import { AppState, Platform, NativeModules } from 'react-native';
+import { AppState, Platform, NativeModules, NativeEventEmitter } from 'react-native';
 import VIForegroundService from '@voximplant/react-native-foreground-service';
 
 const { PipModule } = NativeModules;
@@ -45,6 +45,45 @@ export function RecordingsProvider({ children }) {
   const isInitialMount = useRef(true);
   const timerRef = useRef(null);
   const appStateRef = useRef(AppState.currentState);
+
+  const pauseRecordingRef = useRef(null);
+  const stopRecordingRef = useRef(null);
+
+  // Sync refs to avoid dependency cycles in native event listener
+  useEffect(() => {
+    pauseRecordingRef.current = pauseRecording;
+    stopRecordingRef.current = stopRecording;
+  });
+
+  // Listen to native Picture-in-Picture action broadcasts
+  useEffect(() => {
+    if (Platform.OS === 'android' && PipModule) {
+      try {
+        const eventEmitter = new NativeEventEmitter(PipModule);
+        const subscription = eventEmitter.addListener('onPipAction', (action) => {
+          if (action === 'pause') {
+            if (pauseRecordingRef.current) pauseRecordingRef.current();
+          } else if (action === 'stop') {
+            if (stopRecordingRef.current) stopRecordingRef.current();
+          }
+        });
+        return () => subscription.remove();
+      } catch (err) {
+        console.warn('Failed to register native PIP action emitter:', err);
+      }
+    }
+  }, []);
+
+  // Update native PiP window state (Play/Pause button toggle) when state changes reactive
+  useEffect(() => {
+    if (Platform.OS === 'android' && PipModule && PipModule.updatePipState) {
+      try {
+        PipModule.updatePipState(isPaused);
+      } catch (e) {
+        console.warn('Failed to update native PIP play/pause state:', e);
+      }
+    }
+  }, [isPaused]);
 
   // Ensure recordings directory exists and request notification permissions
   useEffect(() => {

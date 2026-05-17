@@ -32,7 +32,7 @@ const NavTheme = {
 };
 
 function PipOverlayBar() {
-  const { isRecording, isPaused, duration, pauseRecording, stopRecording } = useRecordings();
+  const { isRecording, isPaused, duration, activeCallType } = useRecordings();
   const pulseAnim = useRef(new Animated.Value(1)).current;
 
   // Pulse animation for the REC dot
@@ -52,19 +52,6 @@ function PipOverlayBar() {
     return () => anim?.stop();
   }, [isRecording, isPaused]);
 
-  const handleStop = async () => {
-    // 1. Expand the app back to full screen first!
-    if (Platform.OS === 'android' && PipModule && PipModule.exitPip) {
-      try {
-        PipModule.exitPip();
-      } catch (err) {
-        console.warn('Failed to exit PIP natively:', err);
-      }
-    }
-    // 2. Stop the recording to prompt saving
-    await stopRecording();
-  };
-
   const formatTime = (secs) => {
     const m = Math.floor(secs / 60);
     const s = secs % 60;
@@ -73,32 +60,23 @@ function PipOverlayBar() {
 
   return (
     <View style={styles.pipContainer}>
-      {/* Top Status Indicators */}
-      <View style={styles.pipHeader}>
+      <View style={styles.pipRow}>
+        {/* Left: Pulse dot, Call Type Icon and Name */}
         <View style={styles.indicatorRow}>
           <Animated.View style={[styles.recDot, { opacity: pulseAnim }]} />
-          <Text style={styles.pipTitle}>REC</Text>
+          <Ionicons 
+            name={activeCallType === 'whatsapp' ? 'logo-whatsapp' : 'call'} 
+            size={16} 
+            color={activeCallType === 'whatsapp' ? '#25D366' : '#EF4444'} 
+            style={{ marginRight: 6 }}
+          />
+          <Text style={styles.pipTitle}>
+            {isPaused ? 'PAUSED' : (activeCallType === 'whatsapp' ? 'WHATSAPP' : 'PHONE')}
+          </Text>
         </View>
+
+        {/* Right: Monospace duration timer */}
         <Text style={styles.pipTimer}>{formatTime(duration)}</Text>
-      </View>
-
-      {/* Control Buttons */}
-      <View style={styles.pipControls}>
-        <TouchableOpacity style={styles.controlBtn} onPress={pauseRecording}>
-          <Ionicons
-            name={isPaused ? 'play' : 'pause'}
-            size={20}
-            color={Colors.text}
-          />
-        </TouchableOpacity>
-
-        <TouchableOpacity style={[styles.controlBtn, styles.stopBtn]} onPress={handleStop}>
-          <Ionicons
-            name="square"
-            size={18}
-            color={Colors.accent || '#EF4444'}
-          />
-        </TouchableOpacity>
       </View>
     </View>
   );
@@ -207,17 +185,16 @@ const styles = StyleSheet.create({
   },
   pipContainer: {
     flex: 1,
-    backgroundColor: '#09090F', // Sleek dark slate
-    padding: 10,
-    justifyContent: 'space-between',
+    backgroundColor: '#07070C', // Deep black slate
+    justifyContent: 'center',
     alignItems: 'center',
+    paddingHorizontal: 16,
   },
-  pipHeader: {
+  pipRow: {
     flexDirection: 'row',
     alignItems: 'center',
     justifyContent: 'space-between',
     width: '100%',
-    paddingHorizontal: 4,
   },
   indicatorRow: {
     flexDirection: 'row',
@@ -228,38 +205,18 @@ const styles = StyleSheet.create({
     height: 8,
     borderRadius: 4,
     backgroundColor: '#EF4444',
-    marginRight: 4,
+    marginRight: 6,
   },
   pipTitle: {
     color: '#A0A0AB',
     fontSize: 10,
     fontWeight: 'bold',
-    letterSpacing: 1,
+    letterSpacing: 1.5,
   },
   pipTimer: {
     color: '#FFFFFF',
-    fontSize: 14,
+    fontSize: 16,
     fontFamily: Platform.OS === 'ios' ? 'Courier' : 'monospace',
     fontWeight: 'bold',
-  },
-  pipControls: {
-    flexDirection: 'row',
-    justifyContent: 'center',
-    gap: 16,
-    width: '100%',
-  },
-  controlBtn: {
-    width: 36,
-    height: 36,
-    borderRadius: 18,
-    backgroundColor: '#1E1E2A',
-    alignItems: 'center',
-    justifyContent: 'center',
-    borderWidth: 1,
-    borderColor: '#2E2E3A',
-    elevation: 3,
-  },
-  stopBtn: {
-    borderColor: '#EF4444',
   },
 });
