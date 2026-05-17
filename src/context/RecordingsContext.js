@@ -1,5 +1,5 @@
 import { Audio, InterruptionModeAndroid, InterruptionModeIOS } from 'expo-av';
-import * as FileSystem from 'expo-file-system';
+import * as FileSystem from 'expo-file-system/legacy';
 import * as Notifications from 'expo-notifications';
 import { createContext, useContext, useEffect, useRef, useState } from 'react';
 
@@ -113,15 +113,19 @@ export function RecordingsProvider({ children }) {
       setActiveCallType(type);
 
       // Show background notification
-      await Notifications.scheduleNotificationAsync({
-        content: {
-          title: "Recording Active",
-          body: `Recording ${type === 'whatsapp' ? 'WhatsApp' : 'Phone'} call...`,
-          sticky: true,
-          color: type === 'whatsapp' ? '#25D366' : '#EF4444',
-        },
-        trigger: null,
-      });
+      try {
+        await Notifications.scheduleNotificationAsync({
+          content: {
+            title: "Recording Active",
+            body: `Recording ${type === 'whatsapp' ? 'WhatsApp' : 'Phone'} call...`,
+            sticky: true,
+            color: type === 'whatsapp' ? '#25D366' : '#EF4444',
+          },
+          trigger: null,
+        });
+      } catch (err) {
+        console.warn('Failed to schedule notification (expected in Expo Go):', err);
+      }
 
       return { recording };
     } catch (e) {
@@ -160,7 +164,11 @@ export function RecordingsProvider({ children }) {
       setIsPaused(false);
 
       // Dismiss all notifications
-      await Notifications.dismissAllNotificationsAsync();
+      try {
+        await Notifications.dismissAllNotificationsAsync();
+      } catch (err) {
+        console.warn('Failed to dismiss notifications:', err);
+      }
 
       return { uri, duration: durationFinal, type: typeFinal };
     } catch (e) {

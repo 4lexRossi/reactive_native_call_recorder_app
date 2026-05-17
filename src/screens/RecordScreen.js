@@ -14,7 +14,7 @@ import {
 import { SafeAreaView } from 'react-native-safe-area-context';
 import { Ionicons, MaterialCommunityIcons } from '@expo/vector-icons';
 import { Audio } from 'expo-av';
-import * as FileSystem from 'expo-file-system';
+import * as FileSystem from 'expo-file-system/legacy';
 import { Colors, Spacing, Radius } from '../theme';
 import { useRecordings } from '../context/RecordingsContext';
 
@@ -30,7 +30,8 @@ export default function RecordScreen({ navigation }) {
     startRecording: startRecordingGlobal, 
     pauseRecording, 
     stopRecording: stopRecordingGlobal,
-    currentRecording
+    currentRecording,
+    setDuration
   } = useRecordings();
 
   const [callType, setCallType] = useState('phone'); // Local selection until recording starts
