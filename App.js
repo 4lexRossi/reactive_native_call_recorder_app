@@ -1,19 +1,18 @@
-import React from 'react';
-import { StatusBar } from 'expo-status-bar';
-import { NavigationContainer, DefaultTheme } from '@react-navigation/native';
-import { createNativeStackNavigator } from '@react-navigation/native-stack';
+import { Ionicons } from '@expo/vector-icons';
 import { createBottomTabNavigator } from '@react-navigation/bottom-tabs';
-import { Ionicons, MaterialCommunityIcons } from '@expo/vector-icons';
+import { DefaultTheme, NavigationContainer } from '@react-navigation/native';
+import { createNativeStackNavigator } from '@react-navigation/native-stack';
+import { StatusBar } from 'expo-status-bar';
+import { Platform, StyleSheet } from 'react-native';
 import { SafeAreaProvider, useSafeAreaInsets } from 'react-native-safe-area-context';
-import { View, TouchableOpacity, StyleSheet } from 'react-native';
 
 import { RecordingsProvider } from './src/context/RecordingsContext';
 import { SettingsProvider } from './src/context/SettingsContext';
 import HomeScreen from './src/screens/HomeScreen';
-import RecordScreen from './src/screens/RecordScreen';
 import PlayerScreen from './src/screens/PlayerScreen';
+import RecordScreen from './src/screens/RecordScreen';
 import SettingsScreen from './src/screens/SettingsScreen';
-import { Colors, Radius } from './src/theme';
+import { Colors } from './src/theme';
 
 const Stack = createNativeStackNavigator();
 const Tab = createBottomTabNavigator();
@@ -31,7 +30,7 @@ const NavTheme = {
 
 function TabNavigator() {
   const insets = useSafeAreaInsets();
-  
+
   return (
     <Tab.Navigator
       screenOptions={({ route }) => ({
