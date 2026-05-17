@@ -1,9 +1,11 @@
-import { Audio, InterruptionModeAndroid, InterruptionModeIOS } from 'expo-av';
+import { Audio, InterruptionModeIOS } from 'expo-av';
 import * as FileSystem from 'expo-file-system/legacy';
 import * as Notifications from 'expo-notifications';
 import { createContext, useContext, useEffect, useRef, useState } from 'react';
 import { AppState, Platform, NativeModules, NativeEventEmitter } from 'react-native';
 import VIForegroundService from '@voximplant/react-native-foreground-service';
+
+const { CallStateModule } = NativeModules;
 
 const { PipModule } = NativeModules;
 
@@ -42,12 +44,23 @@ export function RecordingsProvider({ children }) {
   const [startTime, setStartTime] = useState(null);
   const [lastStoppedRecording, setLastStoppedRecording] = useState(null);
 
+  // Refs that mirror state so native event listeners can read current values
+  // without needing to be in the dependency array (avoids stale closures).
+  const currentRecordingRef = useRef(null);
+  const isPausedRef = useRef(false);
+
+  useEffect(() => { currentRecordingRef.current = currentRecording; }, [currentRecording]);
+  useEffect(() => { isPausedRef.current = isPaused; }, [isPaused]);
+
   const isInitialMount = useRef(true);
   const timerRef = useRef(null);
   const appStateRef = useRef(AppState.currentState);
 
   const pauseRecordingRef = useRef(null);
   const stopRecordingRef = useRef(null);
+  // Tracks whether the recording was auto-paused by an incoming call
+  // so we can auto-resume when the call ends.
+  const callInterruptedRef = useRef(false);
 
   // Sync refs to avoid dependency cycles in native event listener
   useEffect(() => {
@@ -73,6 +86,80 @@ export function RecordingsProvider({ children }) {
       }
     }
   }, []);
+
+  // ── Call / VoIP interruption handling ──────────────────────────────────────
+  // When a phone call or WhatsApp call starts, Android takes exclusive control
+  // of the microphone — there is no way to share it. We pause gracefully and
+  // auto-resume when the call ends.
+  useEffect(() => {
+    if (Platform.OS !== 'android' || !CallStateModule) return;
+
+    let subscription;
+    try {
+      const emitter = new NativeEventEmitter(CallStateModule);
+      subscription = emitter.addListener('onCallInterruption', (event) => {
+        if (event === 'call_started') {
+          // Only pause if we are actively recording and not already paused
+          if (pauseRecordingRef.current && !callInterruptedRef.current) {
+            const isCurrentlyRecording = !!currentRecordingRef.current;
+            const isCurrentlyPaused = isPausedRef.current;
+            if (isCurrentlyRecording && !isCurrentlyPaused) {
+              callInterruptedRef.current = true;
+              pauseRecordingRef.current();
+              // Update foreground service notification to inform the user
+              VIForegroundService.getInstance().startService({
+                channelId: 'recording',
+                id: 1001,
+                title: '⏸️ Recording Paused',
+                text: 'Call in progress — will resume automatically when the call ends.',
+                icon: 'ic_launcher',
+                foregroundServiceType: 'microphone',
+              }).catch(() => {});
+            }
+          }
+        } else if (event === 'call_ended') {
+          // Auto-resume only if WE paused it due to a call
+          if (callInterruptedRef.current) {
+            callInterruptedRef.current = false;
+            if (pauseRecordingRef.current) {
+              // Small delay to let the system release the mic
+              setTimeout(() => {
+                pauseRecordingRef.current && pauseRecordingRef.current();
+                VIForegroundService.getInstance().startService({
+                  channelId: 'recording',
+                  id: 1001,
+                  title: '🔴 Recording Active',
+                  text: 'Recording resumed after call.',
+                  icon: 'ic_launcher',
+                  foregroundServiceType: 'microphone',
+                }).catch(() => {});
+              }, 800);
+            }
+          }
+        }
+      });
+    } catch (err) {
+      console.warn('Failed to register CallStateModule listener:', err);
+    }
+
+    return () => subscription?.remove();
+  }, []);
+
+  // Start / stop the native call-state watcher based on recording state
+  useEffect(() => {
+    if (Platform.OS !== 'android' || !CallStateModule) return;
+    try {
+      if (isRecording) {
+        CallStateModule.startListening();
+      } else {
+        callInterruptedRef.current = false; // reset on manual stop
+        CallStateModule.stopListening();
+      }
+    } catch (err) {
+      console.warn('CallStateModule error:', err);
+    }
+  }, [isRecording]);
+  // ───────────────────────────────────────────────────────────────────────────
 
   // Update native PiP window state (Play/Pause button toggle) when state changes reactive
   useEffect(() => {
@@ -182,9 +269,11 @@ export function RecordingsProvider({ children }) {
         allowsRecordingIOS: true,
         playsInSilentModeIOS: true,
         staysActiveInBackground: true,
-        interruptionModeIOS: InterruptionModeIOS.DoNotMix,
+        interruptionModeIOS: InterruptionModeIOS.MixWithOthers,
         shouldDuckAndroid: false,
-        interruptionModeAndroid: InterruptionModeAndroid.DoNotMix,
+        // interruptionModeAndroid is intentionally omitted — it only affects
+        // audio PLAYBACK focus ducking on Android and has no effect on whether
+        // another app can take over the microphone.
         playThroughEarpieceAndroid: false,
       });
 
