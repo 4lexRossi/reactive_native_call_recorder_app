@@ -49,6 +49,7 @@
     },
     "plugins": [
       "./plugins/withForegroundServiceSDKFix",
+      "./plugins/withAndroidPIP",
       [
         "expo-av",
         {

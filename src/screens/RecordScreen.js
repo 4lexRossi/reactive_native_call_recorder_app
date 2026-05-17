@@ -31,7 +31,9 @@ export default function RecordScreen({ navigation }) {
     pauseRecording, 
     stopRecording: stopRecordingGlobal,
     currentRecording,
-    setDuration
+    setDuration,
+    lastStoppedRecording,
+    setLastStoppedRecording
   } = useRecordings();
 
   const [callType, setCallType] = useState('phone'); // Local selection until recording starts
@@ -112,6 +114,26 @@ export default function RecordScreen({ navigation }) {
     }
     return () => anim?.stop();
   }, [isRecording]);
+
+  // Handle global stop actions (e.g. from the Picture-in-Picture overlay)
+  useEffect(() => {
+    if (lastStoppedRecording) {
+      const handleStopped = async () => {
+        const newRec = {
+          id: Date.now().toString(),
+          type: lastStoppedRecording.type,
+          caller: callerName || (lastStoppedRecording.type === 'whatsapp' ? 'WhatsApp Call' : 'Phone Call'),
+          date: new Date().toISOString(),
+          duration: lastStoppedRecording.duration,
+          uri: lastStoppedRecording.uri,
+          size: await getFileSize(lastStoppedRecording.uri),
+        };
+        setPendingRecording(newRec);
+        setLastStoppedRecording(null); // Clear it!
+      };
+      handleStopped();
+    }
+  }, [lastStoppedRecording]);
 
   async function startRecording() {
     const result = await startRecordingGlobal(callType);

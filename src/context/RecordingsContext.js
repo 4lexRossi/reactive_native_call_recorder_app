@@ -2,8 +2,20 @@ import { Audio, InterruptionModeAndroid, InterruptionModeIOS } from 'expo-av';
 import * as FileSystem from 'expo-file-system/legacy';
 import * as Notifications from 'expo-notifications';
 import { createContext, useContext, useEffect, useRef, useState } from 'react';
-import { AppState, Platform } from 'react-native';
+import { AppState, Platform, NativeModules } from 'react-native';
 import VIForegroundService from '@voximplant/react-native-foreground-service';
+
+const { PipModule } = NativeModules;
+
+const setPipActive = (active) => {
+  if (Platform.OS === 'android' && PipModule && PipModule.setRecordingActive) {
+    try {
+      PipModule.setRecordingActive(active);
+    } catch (e) {
+      console.warn('Failed to set PIP active:', e);
+    }
+  }
+};
 
 const METADATA_FILE = FileSystem.documentDirectory + 'recordings.json';
 const RECORDINGS_DIR = FileSystem.documentDirectory + 'recordings/';
@@ -28,6 +40,7 @@ export function RecordingsProvider({ children }) {
   const [duration, setDuration] = useState(0);
   const [activeCallType, setActiveCallType] = useState('phone');
   const [startTime, setStartTime] = useState(null);
+  const [lastStoppedRecording, setLastStoppedRecording] = useState(null);
 
   const isInitialMount = useRef(true);
   const timerRef = useRef(null);
@@ -147,6 +160,7 @@ export function RecordingsProvider({ children }) {
       setIsPaused(false);
       setDuration(0);
       setActiveCallType(type);
+      setPipActive(true);
 
       // Start Android foreground service to keep process alive in background
       if (Platform.OS === 'android') {
@@ -199,6 +213,7 @@ export function RecordingsProvider({ children }) {
       setCurrentRecording(null);
       setIsRecording(false);
       setIsPaused(false);
+      setPipActive(false);
 
       // Stop the Android foreground service
       if (Platform.OS === 'android') {
@@ -216,7 +231,9 @@ export function RecordingsProvider({ children }) {
         console.warn('Failed to dismiss notifications:', err);
       }
 
-      return { uri, duration: durationFinal, type: typeFinal };
+      const result = { uri, duration: durationFinal, type: typeFinal };
+      setLastStoppedRecording(result);
+      return result;
     } catch (e) {
       console.error('Failed to stop recording', e);
       return null;
@@ -272,7 +289,9 @@ export function RecordingsProvider({ children }) {
       startRecording,
       pauseRecording,
       stopRecording,
-      setDuration
+      setDuration,
+      lastStoppedRecording,
+      setLastStoppedRecording
     }}>
       {children}
     </RecordingsContext.Provider>
