@@ -55,6 +55,14 @@
           "staysActiveInBackground": true
         }
       ],
+      [
+        "expo-notifications",
+        {
+          "icon": "./assets/icon.png",
+          "color": "#09090F",
+          "defaultChannel": "recording"
+        }
+      ],
       "expo-media-library"
     ],
     "extra": {

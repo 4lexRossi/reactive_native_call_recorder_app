@@ -2,6 +2,7 @@ import { Audio, InterruptionModeAndroid, InterruptionModeIOS } from 'expo-av';
 import * as FileSystem from 'expo-file-system/legacy';
 import * as Notifications from 'expo-notifications';
 import { createContext, useContext, useEffect, useRef, useState } from 'react';
+import { AppState } from 'react-native';
 
 const METADATA_FILE = FileSystem.documentDirectory + 'recordings.json';
 const RECORDINGS_DIR = FileSystem.documentDirectory + 'recordings/';
@@ -28,6 +29,7 @@ export function RecordingsProvider({ children }) {
 
   const isInitialMount = useRef(true);
   const timerRef = useRef(null);
+  const appStateRef = useRef(AppState.currentState);
 
   // Ensure recordings directory exists and request notification permissions
   useEffect(() => {
@@ -56,12 +58,29 @@ export function RecordingsProvider({ children }) {
         finalStatus = status;
       }
 
+      // Create a persistent high-priority notification channel for background recording
+      try {
+        await Notifications.setNotificationChannelAsync('recording', {
+          name: 'Call Recording',
+          importance: Notifications.AndroidImportance.MAX,
+          vibrationPattern: [0],
+          lightColor: '#EF4444',
+          lockscreenVisibility: Notifications.AndroidNotificationVisibility.PUBLIC,
+          bypassDnd: true,
+          enableLights: false,
+          enableVibrate: false,
+          showBadge: false,
+        });
+      } catch (err) {
+        console.warn('Could not create notification channel:', err);
+      }
+
       isInitialMount.current = false;
     }
     init();
   }, []);
 
-  // Timer logic - more robust for background
+  // Timer logic - timestamp-based so it stays accurate after backgrounding
   useEffect(() => {
     if (isRecording && !isPaused && startTime) {
       timerRef.current = setInterval(() => {
@@ -75,6 +94,23 @@ export function RecordingsProvider({ children }) {
     return () => {
       if (timerRef.current) clearInterval(timerRef.current);
     };
+  }, [isRecording, isPaused, startTime]);
+
+  // Resync timer when app returns to foreground after being backgrounded
+  useEffect(() => {
+    const subscription = AppState.addEventListener('change', (nextState) => {
+      if (
+        appStateRef.current.match(/inactive|background/) &&
+        nextState === 'active' &&
+        isRecording &&
+        !isPaused &&
+        startTime
+      ) {
+        setDuration(Math.floor((Date.now() - startTime) / 1000));
+      }
+      appStateRef.current = nextState;
+    });
+    return () => subscription.remove();
   }, [isRecording, isPaused, startTime]);
 
   // Persist metadata when recordings change
@@ -112,14 +148,21 @@ export function RecordingsProvider({ children }) {
       setDuration(0);
       setActiveCallType(type);
 
-      // Show background notification
+      // Show persistent foreground-service notification (non-dismissible)
       try {
         await Notifications.scheduleNotificationAsync({
           content: {
-            title: "Recording Active",
+            title: '🔴 Recording Active',
             body: `Recording ${type === 'whatsapp' ? 'WhatsApp' : 'Phone'} call...`,
             sticky: true,
             color: type === 'whatsapp' ? '#25D366' : '#EF4444',
+            android: {
+              channelId: 'recording',
+              ongoing: true,
+              sticky: true,
+              priority: 'max',
+              asForegroundService: true,
+            },
           },
           trigger: null,
         });
