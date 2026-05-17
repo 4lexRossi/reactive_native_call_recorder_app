@@ -21,19 +21,32 @@ import { useRecordings } from '../context/RecordingsContext';
 const { width, height } = Dimensions.get('window');
 
 export default function RecordScreen({ navigation }) {
-  const { addRecording } = useRecordings();
-  const [isRecording, setIsRecording] = useState(false);
-  const [isPaused, setIsPaused] = useState(false);
-  const [callType, setCallType] = useState('phone'); // 'phone' | 'whatsapp'
-  const [duration, setDuration] = useState(0);
+  const { 
+    addRecording, 
+    isRecording, 
+    isPaused, 
+    duration, 
+    activeCallType, 
+    startRecording: startRecordingGlobal, 
+    pauseRecording, 
+    stopRecording: stopRecordingGlobal,
+    currentRecording
+  } = useRecordings();
+
+  const [callType, setCallType] = useState('phone'); // Local selection until recording starts
   const [callerName, setCallerName] = useState('');
-  const [recording, setRecording] = useState(null);
   const [pendingRecording, setPendingRecording] = useState(null);
 
   const pulseAnim = useRef(new Animated.Value(1)).current;
   const waveAnims = useRef([...Array(5)].map(() => new Animated.Value(0.3))).current;
-  const timerRef = useRef(null);
   const glowAnim = useRef(new Animated.Value(0)).current;
+
+  // Sync local callType with activeCallType if recording
+  useEffect(() => {
+    if (isRecording) {
+      setCallType(activeCallType);
+    }
+  }, [isRecording, activeCallType]);
 
   // Pulse animation for mic button
   useEffect(() => {
@@ -99,82 +112,26 @@ export default function RecordScreen({ navigation }) {
     return () => anim?.stop();
   }, [isRecording]);
 
-  // Timer
-  useEffect(() => {
-    if (isRecording && !isPaused) {
-      timerRef.current = setInterval(() => setDuration(d => d + 1), 1000);
-    } else {
-      clearInterval(timerRef.current);
-    }
-    return () => clearInterval(timerRef.current);
-  }, [isRecording, isPaused]);
-
   async function startRecording() {
-    try {
-      const { status } = await Audio.requestPermissionsAsync();
-      if (status !== 'granted') {
-        Alert.alert(
-          'Permission Required',
-          'Microphone permission is required to record calls. Please enable it in Settings.',
-          [{ text: 'OK' }]
-        );
-        return;
-      }
-
-      await Audio.setAudioModeAsync({
-        allowsRecordingIOS: true,
-        playsInSilentModeIOS: true,
-      });
-
-      const { recording: rec } = await Audio.Recording.createAsync(
-        Audio.RecordingOptionsPresets.HIGH_QUALITY
-      );
-      setRecording(rec);
-      setIsRecording(true);
-      setIsPaused(false);
-      setDuration(0);
-    } catch (err) {
-      Alert.alert('Error', 'Could not start recording: ' + err.message);
-    }
-  }
-
-  async function pauseRecording() {
-    if (!recording) return;
-    try {
-      if (isPaused) {
-        await recording.startAsync();
-        setIsPaused(false);
-      } else {
-        await recording.pauseAsync();
-        setIsPaused(true);
-      }
-    } catch (err) {
-      console.warn(err);
+    const result = await startRecordingGlobal(callType);
+    if (result?.error) {
+      Alert.alert('Error', result.error);
     }
   }
 
   async function stopRecording() {
-    if (!recording) return;
-    try {
-      await recording.stopAndUnloadAsync();
-      const uri = recording.getURI();
-
+    const result = await stopRecordingGlobal();
+    if (result) {
       const newRec = {
         id: Date.now().toString(),
-        type: callType,
-        caller: callerName || (callType === 'whatsapp' ? 'WhatsApp Call' : 'Phone Call'),
+        type: result.type,
+        caller: callerName || (result.type === 'whatsapp' ? 'WhatsApp Call' : 'Phone Call'),
         date: new Date().toISOString(),
-        duration,
-        uri,
-        size: await getFileSize(uri),
+        duration: result.duration,
+        uri: result.uri,
+        size: await getFileSize(result.uri),
       };
-
       setPendingRecording(newRec);
-      setRecording(null);
-      setIsRecording(false);
-      setIsPaused(false);
-    } catch (err) {
-      Alert.alert('Error', 'Could not stop recording: ' + err.message);
     }
   }
 
