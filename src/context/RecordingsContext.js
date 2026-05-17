@@ -1,7 +1,7 @@
-import React, { createContext, useContext, useState, useEffect, useRef } from 'react';
+import { Audio, InterruptionModeAndroid, InterruptionModeIOS } from 'expo-av';
 import * as FileSystem from 'expo-file-system';
 import * as Notifications from 'expo-notifications';
-import { Audio } from 'expo-av';
+import { createContext, useContext, useEffect, useRef, useState } from 'react';
 
 const METADATA_FILE = FileSystem.documentDirectory + 'recordings.json';
 const RECORDINGS_DIR = FileSystem.documentDirectory + 'recordings/';
@@ -94,9 +94,9 @@ export function RecordingsProvider({ children }) {
         allowsRecordingIOS: true,
         playsInSilentModeIOS: true,
         staysActiveInBackground: true,
-        interruptionModeIOS: Audio.INTERRUPTION_MODE_IOS_DO_NOT_MIX,
+        interruptionModeIOS: InterruptionModeIOS.DoNotMix,
         shouldDuckAndroid: true,
-        interruptionModeAndroid: Audio.INTERRUPTION_MODE_ANDROID_DO_NOT_MIX,
+        interruptionModeAndroid: InterruptionModeAndroid.DoNotMix,
         playThroughEarpieceAndroid: false,
       });
 
