@@ -78,8 +78,15 @@ import android.app.PictureInPictureParams
         reactContext
           ?.getJSModule(com.facebook.react.modules.core.DeviceEventManagerModule.RCTDeviceEventEmitter::class.java)
           ?.emit("onPipAction", action)
-      } catch (e: Exception) {
-      }
+      } catch (e: Exception) {}
+    }
+
+    fun emitPipModeChanged(isInPip: Boolean) {
+      try {
+        reactContext
+          ?.getJSModule(com.facebook.react.modules.core.DeviceEventManagerModule.RCTDeviceEventEmitter::class.java)
+          ?.emit("onPipModeChanged", isInPip)
+      } catch (e: Exception) {}
     }
 
     fun enterPip() {
@@ -91,8 +98,7 @@ import android.app.PictureInPictureParams
         val intent = Intent(instance, MainActivity::class.java)
         intent.addFlags(Intent.FLAG_ACTIVITY_REORDER_TO_FRONT)
         instance?.startActivity(intent)
-      } catch (e: Exception) {
-      }
+      } catch (e: Exception) {}
     }
   }
 
@@ -122,58 +128,35 @@ import android.app.PictureInPictureParams
     }
   }
 
-  fun updatePipParams(isPaused: Boolean) {
+  private fun buildPipActions(isPaused: Boolean): ArrayList<RemoteAction> {
+    val actions = ArrayList<RemoteAction>()
     if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O) {
-      val actions = ArrayList<RemoteAction>()
-      
-      // Pause/Play Action
-      val pauseIntent = Intent(ACTION_MEDIA_CONTROL).apply {
-        putExtra(EXTRA_CONTROL_TYPE, CONTROL_TYPE_PAUSE)
-      }
-      val pausePendingIntent = PendingIntent.getBroadcast(
-        this,
-        CONTROL_TYPE_PAUSE,
-        pauseIntent,
-        PendingIntent.FLAG_UPDATE_CURRENT or PendingIntent.FLAG_IMMUTABLE
-      )
-      val pauseIcon = Icon.createWithResource(
-        this,
-        if (isPaused) android.R.drawable.ic_media_play else android.R.drawable.ic_media_pause
-      )
-      val pauseAction = RemoteAction(
-        pauseIcon,
+      val pauseIntent = Intent(ACTION_MEDIA_CONTROL).apply { putExtra(EXTRA_CONTROL_TYPE, CONTROL_TYPE_PAUSE) }
+      val pausePendingIntent = PendingIntent.getBroadcast(this, CONTROL_TYPE_PAUSE, pauseIntent,
+        PendingIntent.FLAG_UPDATE_CURRENT or PendingIntent.FLAG_IMMUTABLE)
+      actions.add(RemoteAction(
+        Icon.createWithResource(this, if (isPaused) android.R.drawable.ic_media_play else android.R.drawable.ic_media_pause),
         if (isPaused) "Resume" else "Pause",
         if (isPaused) "Resume" else "Pause",
         pausePendingIntent
-      )
-      actions.add(pauseAction)
+      ))
 
-      // Stop Action
-      val stopIntent = Intent(ACTION_MEDIA_CONTROL).apply {
-        putExtra(EXTRA_CONTROL_TYPE, CONTROL_TYPE_STOP)
-      }
-      val stopPendingIntent = PendingIntent.getBroadcast(
-        this,
-        CONTROL_TYPE_STOP,
-        stopIntent,
-        PendingIntent.FLAG_UPDATE_CURRENT or PendingIntent.FLAG_IMMUTABLE
-      )
-      val stopIcon = Icon.createWithResource(
-        this,
-        android.R.drawable.ic_menu_close_clear_cancel
-      )
-      val stopAction = RemoteAction(
-        stopIcon,
-        "Stop",
-        "Stop",
-        stopPendingIntent
-      )
-      actions.add(stopAction)
+      val stopIntent = Intent(ACTION_MEDIA_CONTROL).apply { putExtra(EXTRA_CONTROL_TYPE, CONTROL_TYPE_STOP) }
+      val stopPendingIntent = PendingIntent.getBroadcast(this, CONTROL_TYPE_STOP, stopIntent,
+        PendingIntent.FLAG_UPDATE_CURRENT or PendingIntent.FLAG_IMMUTABLE)
+      actions.add(RemoteAction(
+        Icon.createWithResource(this, android.R.drawable.ic_menu_close_clear_cancel),
+        "Stop", "Stop", stopPendingIntent
+      ))
+    }
+    return actions
+  }
 
-      val aspectRatio = Rational(20, 10) // 2:1 widescreen horizontal bar (half the height!)
+  fun updatePipParams(isPaused: Boolean) {
+    if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O) {
       val params = PictureInPictureParams.Builder()
-        .setAspectRatio(aspectRatio)
-        .setActions(actions)
+        .setAspectRatio(Rational(20, 10))
+        .setActions(buildPipActions(isPaused))
         .build()
       setPictureInPictureParams(params)
     }
@@ -181,14 +164,20 @@ import android.app.PictureInPictureParams
 
   fun enterPipMode() {
     if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O) {
-      val aspectRatio = Rational(20, 10) // 2:1 ratio
       val params = PictureInPictureParams.Builder()
-        .setAspectRatio(aspectRatio)
+        .setAspectRatio(Rational(20, 10))
+        .setActions(buildPipActions(isRecordingPaused))
         .build()
       enterPictureInPictureMode(params)
-      // Apply actions immediately
-      updatePipParams(isRecordingPaused)
     }
+  }
+
+  override fun onPictureInPictureModeChanged(
+    isInPictureInPictureMode: Boolean,
+    newConfig: android.content.res.Configuration
+  ) {
+    super.onPictureInPictureModeChanged(isInPictureInPictureMode, newConfig)
+    emitPipModeChanged(isInPictureInPictureMode)
   }
 
   override fun onUserLeaveHint() {
@@ -229,6 +218,9 @@ class PipModule(reactContext: ReactApplicationContext) : ReactContextBaseJavaMod
   override fun getName(): String {
     return "PipModule"
   }
+
+  @ReactMethod fun addListener(eventName: String) {}
+  @ReactMethod fun removeListeners(count: Int) {}
 
   @ReactMethod
   fun setRecordingActive(active: Boolean) {

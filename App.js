@@ -3,8 +3,8 @@ import { createBottomTabNavigator } from '@react-navigation/bottom-tabs';
 import { DefaultTheme, NavigationContainer } from '@react-navigation/native';
 import { createNativeStackNavigator } from '@react-navigation/native-stack';
 import { StatusBar } from 'expo-status-bar';
-import React, { useEffect, useRef } from 'react';
-import { Platform, StyleSheet, useWindowDimensions, View, Text, TouchableOpacity, Animated, NativeModules } from 'react-native';
+import React, { useState, useEffect, useRef } from 'react';
+import { Platform, StyleSheet, useWindowDimensions, View, Text, TouchableOpacity, Animated, NativeModules, NativeEventEmitter } from 'react-native';
 import { SafeAreaProvider, useSafeAreaInsets } from 'react-native-safe-area-context';
 
 import { RecordingsProvider, useRecordings } from './src/context/RecordingsContext';
@@ -32,7 +32,8 @@ const NavTheme = {
 };
 
 function PipOverlayBar() {
-  const { isRecording, isPaused, duration, activeCallType } = useRecordings();
+  const { isRecording, isPaused, duration, startTime, activeCallType } = useRecordings();
+  const [localDuration, setLocalDuration] = useState(duration);
   const pulseAnim = useRef(new Animated.Value(1)).current;
 
   // Pulse animation for the REC dot
@@ -51,6 +52,20 @@ function PipOverlayBar() {
     }
     return () => anim?.stop();
   }, [isRecording, isPaused]);
+
+  // Keep a local timer running in PipOverlayBar which computes exact elapsed time based on Date.now() - startTime.
+  // This bypasses standard OS interval throttling of non-visible window states.
+  useEffect(() => {
+    if (isRecording && !isPaused && startTime) {
+      setLocalDuration(Math.floor((Date.now() - startTime) / 1000));
+      const interval = setInterval(() => {
+        setLocalDuration(Math.floor((Date.now() - startTime) / 1000));
+      }, 500);
+      return () => clearInterval(interval);
+    } else {
+      setLocalDuration(duration);
+    }
+  }, [isRecording, isPaused, startTime, duration]);
 
   const formatTime = (secs) => {
     const m = Math.floor(secs / 60);
@@ -76,7 +91,7 @@ function PipOverlayBar() {
         </View>
 
         {/* Right: Monospace duration timer */}
-        <Text style={styles.pipTimer}>{formatTime(duration)}</Text>
+        <Text style={styles.pipTimer}>{formatTime(localDuration)}</Text>
       </View>
     </View>
   );
@@ -129,9 +144,26 @@ function TabNavigator() {
 
 function AppContent() {
   const { width, height } = useWindowDimensions();
-  const isPip = width < 300 || height < 300;
+  const [isInPip, setIsInPip] = useState(false);
 
-  if (isPip) {
+  // Instantly toggle Pip UI layout based on exact Native Event rather than waiting for Android layout updates
+  useEffect(() => {
+    if (Platform.OS === 'android' && PipModule) {
+      try {
+        const eventEmitter = new NativeEventEmitter(PipModule);
+        const subscription = eventEmitter.addListener('onPipModeChanged', (inPip) => {
+          setIsInPip(inPip);
+        });
+        return () => subscription.remove();
+      } catch (err) {
+        console.warn('Failed to listen to onPipModeChanged:', err);
+      }
+    }
+  }, []);
+
+  const isCurrentlyPip = isInPip || width < 300 || height < 300;
+
+  if (isCurrentlyPip) {
     return <PipOverlayBar />;
   }
 

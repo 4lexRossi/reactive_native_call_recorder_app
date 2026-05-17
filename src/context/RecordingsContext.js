@@ -413,6 +413,7 @@ export function RecordingsProvider({ children }) {
       isRecording,
       isPaused,
       duration,
+      startTime,
       activeCallType,
       startRecording,
       pauseRecording,
