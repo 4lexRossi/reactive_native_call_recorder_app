@@ -15,7 +15,10 @@
       "supportsTablet": false,
       "infoPlist": {
         "NSMicrophoneUsageDescription": "CallRecorder Pro needs microphone access to record your calls.",
-        "NSPhotoLibraryUsageDescription": "CallRecorder Pro needs access to save recordings to your library."
+        "NSPhotoLibraryUsageDescription": "CallRecorder Pro needs access to save recordings to your library.",
+        "UIBackgroundModes": [
+          "audio"
+        ]
       }
     },
     "android": {
@@ -31,6 +34,7 @@
         "android.permission.WRITE_EXTERNAL_STORAGE",
         "android.permission.READ_EXTERNAL_STORAGE",
         "android.permission.FOREGROUND_SERVICE",
+        "android.permission.FOREGROUND_SERVICE_MICROPHONE",
         "android.permission.VIBRATE",
         "android.permission.MODIFY_AUDIO_SETTINGS",
         "android.permission.READ_MEDIA_VISUAL_USER_SELECTED",
@@ -44,10 +48,21 @@
       "favicon": "./assets/favicon.png"
     },
     "plugins": [
+      "./plugins/withForegroundServiceSDKFix",
+      "./plugins/withAndroidPIP",
       [
         "expo-av",
         {
-          "microphonePermission": "Allow CallRecorder Pro to access your microphone."
+          "microphonePermission": "Allow CallRecorder Pro to access your microphone.",
+          "staysActiveInBackground": true
+        }
+      ],
+      [
+        "expo-notifications",
+        {
+          "icon": "./assets/icon.png",
+          "color": "#09090F",
+          "defaultChannel": "recording"
         }
       ],
       "expo-media-library"

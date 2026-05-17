@@ -1,7 +1,23 @@
-import React, { createContext, useContext, useState, useEffect, useRef } from 'react';
-import * as FileSystem from 'expo-file-system';
+import { Audio, InterruptionModeIOS } from 'expo-av';
+import * as FileSystem from 'expo-file-system/legacy';
 import * as Notifications from 'expo-notifications';
-import { Audio } from 'expo-av';
+import { createContext, useContext, useEffect, useRef, useState } from 'react';
+import { AppState, Platform, NativeModules, NativeEventEmitter } from 'react-native';
+import VIForegroundService from '@voximplant/react-native-foreground-service';
+
+const { CallStateModule } = NativeModules;
+
+const { PipModule } = NativeModules;
+
+const setPipActive = (active) => {
+  if (Platform.OS === 'android' && PipModule && PipModule.setRecordingActive) {
+    try {
+      PipModule.setRecordingActive(active);
+    } catch (e) {
+      console.warn('Failed to set PIP active:', e);
+    }
+  }
+};
 
 const METADATA_FILE = FileSystem.documentDirectory + 'recordings.json';
 const RECORDINGS_DIR = FileSystem.documentDirectory + 'recordings/';
@@ -9,7 +25,8 @@ const RECORDINGS_DIR = FileSystem.documentDirectory + 'recordings/';
 // Configure notifications
 Notifications.setNotificationHandler({
   handleNotification: async () => ({
-    shouldShowAlert: true,
+    shouldShowBanner: true,
+    shouldShowList: true,
     shouldPlaySound: false,
     shouldSetBadge: false,
   }),
@@ -25,9 +42,135 @@ export function RecordingsProvider({ children }) {
   const [duration, setDuration] = useState(0);
   const [activeCallType, setActiveCallType] = useState('phone');
   const [startTime, setStartTime] = useState(null);
+  const [lastStoppedRecording, setLastStoppedRecording] = useState(null);
+
+  // Refs that mirror state so native event listeners can read current values
+  // without needing to be in the dependency array (avoids stale closures).
+  const currentRecordingRef = useRef(null);
+  const isPausedRef = useRef(false);
+
+  useEffect(() => { currentRecordingRef.current = currentRecording; }, [currentRecording]);
+  useEffect(() => { isPausedRef.current = isPaused; }, [isPaused]);
 
   const isInitialMount = useRef(true);
   const timerRef = useRef(null);
+  const appStateRef = useRef(AppState.currentState);
+
+  const pauseRecordingRef = useRef(null);
+  const stopRecordingRef = useRef(null);
+  // Tracks whether the recording was auto-paused by an incoming call
+  // so we can auto-resume when the call ends.
+  const callInterruptedRef = useRef(false);
+
+  // Sync refs to avoid dependency cycles in native event listener
+  useEffect(() => {
+    pauseRecordingRef.current = pauseRecording;
+    stopRecordingRef.current = stopRecording;
+  });
+
+  // Listen to native Picture-in-Picture action broadcasts
+  useEffect(() => {
+    if (Platform.OS === 'android' && PipModule) {
+      try {
+        const eventEmitter = new NativeEventEmitter(PipModule);
+        const subscription = eventEmitter.addListener('onPipAction', (action) => {
+          if (action === 'pause') {
+            if (pauseRecordingRef.current) pauseRecordingRef.current();
+          } else if (action === 'stop') {
+            if (stopRecordingRef.current) stopRecordingRef.current();
+          }
+        });
+        return () => subscription.remove();
+      } catch (err) {
+        console.warn('Failed to register native PIP action emitter:', err);
+      }
+    }
+  }, []);
+
+  // ── Call / VoIP interruption handling ──────────────────────────────────────
+  // When a phone call or WhatsApp call starts, Android takes exclusive control
+  // of the microphone — there is no way to share it. We pause gracefully and
+  // auto-resume when the call ends.
+  useEffect(() => {
+    if (Platform.OS !== 'android' || !CallStateModule) return;
+
+    let subscription;
+    try {
+      const emitter = new NativeEventEmitter(CallStateModule);
+      subscription = emitter.addListener('onCallInterruption', (event) => {
+        if (event === 'call_started') {
+          // Only pause if we are actively recording and not already paused
+          if (pauseRecordingRef.current && !callInterruptedRef.current) {
+            const isCurrentlyRecording = !!currentRecordingRef.current;
+            const isCurrentlyPaused = isPausedRef.current;
+            if (isCurrentlyRecording && !isCurrentlyPaused) {
+              callInterruptedRef.current = true;
+              pauseRecordingRef.current();
+              // Update foreground service notification to inform the user
+              VIForegroundService.getInstance().startService({
+                channelId: 'recording',
+                id: 1001,
+                title: '⏸️ Recording Paused',
+                text: 'Call in progress — will resume automatically when the call ends.',
+                icon: 'ic_launcher',
+                foregroundServiceType: 'microphone',
+              }).catch(() => {});
+            }
+          }
+        } else if (event === 'call_ended') {
+          // Auto-resume only if WE paused it due to a call
+          if (callInterruptedRef.current) {
+            callInterruptedRef.current = false;
+            if (pauseRecordingRef.current) {
+              // Small delay to let the system release the mic
+              setTimeout(() => {
+                pauseRecordingRef.current && pauseRecordingRef.current();
+                VIForegroundService.getInstance().startService({
+                  channelId: 'recording',
+                  id: 1001,
+                  title: '🔴 Recording Active',
+                  text: 'Recording resumed after call.',
+                  icon: 'ic_launcher',
+                  foregroundServiceType: 'microphone',
+                }).catch(() => {});
+              }, 800);
+            }
+          }
+        }
+      });
+    } catch (err) {
+      console.warn('Failed to register CallStateModule listener:', err);
+    }
+
+    return () => subscription?.remove();
+  }, []);
+
+  // Start / stop the native call-state watcher based on recording state
+  useEffect(() => {
+    if (Platform.OS !== 'android' || !CallStateModule) return;
+    try {
+      if (isRecording) {
+        CallStateModule.startListening();
+      } else {
+        callInterruptedRef.current = false; // reset on manual stop
+        CallStateModule.stopListening();
+      }
+    } catch (err) {
+      console.warn('CallStateModule error:', err);
+    }
+  }, [isRecording]);
+  // ───────────────────────────────────────────────────────────────────────────
+
+  // Update native PiP window state (Play/Pause button toggle) when state changes reactive
+  useEffect(() => {
+    if (Platform.OS === 'android' && PipModule && PipModule.updatePipState) {
+      try {
+        PipModule.updatePipState(isPaused);
+      } catch (e) {
+        console.warn('Failed to update native PIP play/pause state:', e);
+      }
+    }
+  }, [isPaused]);
 
   // Ensure recordings directory exists and request notification permissions
   useEffect(() => {
@@ -56,12 +199,27 @@ export function RecordingsProvider({ children }) {
         finalStatus = status;
       }
 
+      // Create Android notification channel for the foreground service
+      if (Platform.OS === 'android') {
+        try {
+          await VIForegroundService.getInstance().createNotificationChannel({
+            id: 'recording',
+            name: 'Call Recording',
+            description: 'Keeps call recording alive in background',
+            enableVibration: false,
+            importance: 'high',
+          });
+        } catch (err) {
+          console.warn('Could not create foreground service channel:', err);
+        }
+      }
+
       isInitialMount.current = false;
     }
     init();
   }, []);
 
-  // Timer logic - more robust for background
+  // Timer logic - timestamp-based so it stays accurate after backgrounding
   useEffect(() => {
     if (isRecording && !isPaused && startTime) {
       timerRef.current = setInterval(() => {
@@ -75,6 +233,23 @@ export function RecordingsProvider({ children }) {
     return () => {
       if (timerRef.current) clearInterval(timerRef.current);
     };
+  }, [isRecording, isPaused, startTime]);
+
+  // Resync timer when app returns to foreground after being backgrounded
+  useEffect(() => {
+    const subscription = AppState.addEventListener('change', (nextState) => {
+      if (
+        appStateRef.current.match(/inactive|background/) &&
+        nextState === 'active' &&
+        isRecording &&
+        !isPaused &&
+        startTime
+      ) {
+        setDuration(Math.floor((Date.now() - startTime) / 1000));
+      }
+      appStateRef.current = nextState;
+    });
+    return () => subscription.remove();
   }, [isRecording, isPaused, startTime]);
 
   // Persist metadata when recordings change
@@ -94,9 +269,11 @@ export function RecordingsProvider({ children }) {
         allowsRecordingIOS: true,
         playsInSilentModeIOS: true,
         staysActiveInBackground: true,
-        interruptionModeIOS: Audio.INTERRUPTION_MODE_IOS_DO_NOT_MIX,
-        shouldDuckAndroid: true,
-        interruptionModeAndroid: Audio.INTERRUPTION_MODE_ANDROID_DO_NOT_MIX,
+        interruptionModeIOS: InterruptionModeIOS.MixWithOthers,
+        shouldDuckAndroid: false,
+        // interruptionModeAndroid is intentionally omitted — it only affects
+        // audio PLAYBACK focus ducking on Android and has no effect on whether
+        // another app can take over the microphone.
         playThroughEarpieceAndroid: false,
       });
 
@@ -111,17 +288,23 @@ export function RecordingsProvider({ children }) {
       setIsPaused(false);
       setDuration(0);
       setActiveCallType(type);
+      setPipActive(true);
 
-      // Show background notification
-      await Notifications.scheduleNotificationAsync({
-        content: {
-          title: "Recording Active",
-          body: `Recording ${type === 'whatsapp' ? 'WhatsApp' : 'Phone'} call...`,
-          sticky: true,
-          color: type === 'whatsapp' ? '#25D366' : '#EF4444',
-        },
-        trigger: null,
-      });
+      // Start Android foreground service to keep process alive in background
+      if (Platform.OS === 'android') {
+        try {
+          await VIForegroundService.getInstance().startService({
+            channelId: 'recording',
+            id: 1001,
+            title: '🔴 Recording Active',
+            text: `Recording ${type === 'whatsapp' ? 'WhatsApp' : 'Phone'} call...`,
+            icon: 'ic_launcher',
+            foregroundServiceType: 'microphone',
+          });
+        } catch (err) {
+          console.warn('Could not start foreground service:', err);
+        }
+      }
 
       return { recording };
     } catch (e) {
@@ -158,11 +341,27 @@ export function RecordingsProvider({ children }) {
       setCurrentRecording(null);
       setIsRecording(false);
       setIsPaused(false);
+      setPipActive(false);
+
+      // Stop the Android foreground service
+      if (Platform.OS === 'android') {
+        try {
+          await VIForegroundService.getInstance().stopService();
+        } catch (err) {
+          console.warn('Could not stop foreground service:', err);
+        }
+      }
 
       // Dismiss all notifications
-      await Notifications.dismissAllNotificationsAsync();
+      try {
+        await Notifications.dismissAllNotificationsAsync();
+      } catch (err) {
+        console.warn('Failed to dismiss notifications:', err);
+      }
 
-      return { uri, duration: durationFinal, type: typeFinal };
+      const result = { uri, duration: durationFinal, type: typeFinal };
+      setLastStoppedRecording(result);
+      return result;
     } catch (e) {
       console.error('Failed to stop recording', e);
       return null;
@@ -214,11 +413,14 @@ export function RecordingsProvider({ children }) {
       isRecording,
       isPaused,
       duration,
+      startTime,
       activeCallType,
       startRecording,
       pauseRecording,
       stopRecording,
-      setDuration
+      setDuration,
+      lastStoppedRecording,
+      setLastStoppedRecording
     }}>
       {children}
     </RecordingsContext.Provider>

@@ -14,7 +14,7 @@ import {
 import { SafeAreaView } from 'react-native-safe-area-context';
 import { Ionicons, MaterialCommunityIcons } from '@expo/vector-icons';
 import { Audio } from 'expo-av';
-import * as FileSystem from 'expo-file-system';
+import * as FileSystem from 'expo-file-system/legacy';
 import { Colors, Spacing, Radius } from '../theme';
 import { useRecordings } from '../context/RecordingsContext';
 
@@ -30,7 +30,10 @@ export default function RecordScreen({ navigation }) {
     startRecording: startRecordingGlobal, 
     pauseRecording, 
     stopRecording: stopRecordingGlobal,
-    currentRecording
+    currentRecording,
+    setDuration,
+    lastStoppedRecording,
+    setLastStoppedRecording
   } = useRecordings();
 
   const [callType, setCallType] = useState('phone'); // Local selection until recording starts
@@ -111,6 +114,26 @@ export default function RecordScreen({ navigation }) {
     }
     return () => anim?.stop();
   }, [isRecording]);
+
+  // Handle global stop actions (e.g. from the Picture-in-Picture overlay)
+  useEffect(() => {
+    if (lastStoppedRecording) {
+      const handleStopped = async () => {
+        const newRec = {
+          id: Date.now().toString(),
+          type: lastStoppedRecording.type,
+          caller: callerName || (lastStoppedRecording.type === 'whatsapp' ? 'WhatsApp Call' : 'Phone Call'),
+          date: new Date().toISOString(),
+          duration: lastStoppedRecording.duration,
+          uri: lastStoppedRecording.uri,
+          size: await getFileSize(lastStoppedRecording.uri),
+        };
+        setPendingRecording(newRec);
+        setLastStoppedRecording(null); // Clear it!
+      };
+      handleStopped();
+    }
+  }, [lastStoppedRecording]);
 
   async function startRecording() {
     const result = await startRecordingGlobal(callType);
