@@ -2,7 +2,8 @@ import { Audio, InterruptionModeAndroid, InterruptionModeIOS } from 'expo-av';
 import * as FileSystem from 'expo-file-system/legacy';
 import * as Notifications from 'expo-notifications';
 import { createContext, useContext, useEffect, useRef, useState } from 'react';
-import { AppState } from 'react-native';
+import { AppState, Platform } from 'react-native';
+import VIForegroundService from '@voximplant/react-native-foreground-service';
 
 const METADATA_FILE = FileSystem.documentDirectory + 'recordings.json';
 const RECORDINGS_DIR = FileSystem.documentDirectory + 'recordings/';
@@ -10,7 +11,8 @@ const RECORDINGS_DIR = FileSystem.documentDirectory + 'recordings/';
 // Configure notifications
 Notifications.setNotificationHandler({
   handleNotification: async () => ({
-    shouldShowAlert: true,
+    shouldShowBanner: true,
+    shouldShowList: true,
     shouldPlaySound: false,
     shouldSetBadge: false,
   }),
@@ -58,21 +60,19 @@ export function RecordingsProvider({ children }) {
         finalStatus = status;
       }
 
-      // Create a persistent high-priority notification channel for background recording
-      try {
-        await Notifications.setNotificationChannelAsync('recording', {
-          name: 'Call Recording',
-          importance: Notifications.AndroidImportance.MAX,
-          vibrationPattern: [0],
-          lightColor: '#EF4444',
-          lockscreenVisibility: Notifications.AndroidNotificationVisibility.PUBLIC,
-          bypassDnd: true,
-          enableLights: false,
-          enableVibrate: false,
-          showBadge: false,
-        });
-      } catch (err) {
-        console.warn('Could not create notification channel:', err);
+      // Create Android notification channel for the foreground service
+      if (Platform.OS === 'android') {
+        try {
+          await VIForegroundService.createNotificationChannel({
+            id: 'recording',
+            name: 'Call Recording',
+            description: 'Keeps call recording alive in background',
+            enableVibration: false,
+            importance: 'high',
+          });
+        } catch (err) {
+          console.warn('Could not create foreground service channel:', err);
+        }
       }
 
       isInitialMount.current = false;
@@ -131,7 +131,7 @@ export function RecordingsProvider({ children }) {
         playsInSilentModeIOS: true,
         staysActiveInBackground: true,
         interruptionModeIOS: InterruptionModeIOS.DoNotMix,
-        shouldDuckAndroid: true,
+        shouldDuckAndroid: false,
         interruptionModeAndroid: InterruptionModeAndroid.DoNotMix,
         playThroughEarpieceAndroid: false,
       });
@@ -148,26 +148,20 @@ export function RecordingsProvider({ children }) {
       setDuration(0);
       setActiveCallType(type);
 
-      // Show persistent foreground-service notification (non-dismissible)
-      try {
-        await Notifications.scheduleNotificationAsync({
-          content: {
+      // Start Android foreground service to keep process alive in background
+      if (Platform.OS === 'android') {
+        try {
+          await VIForegroundService.startService({
+            channelId: 'recording',
+            id: 1001,
             title: '🔴 Recording Active',
-            body: `Recording ${type === 'whatsapp' ? 'WhatsApp' : 'Phone'} call...`,
-            sticky: true,
-            color: type === 'whatsapp' ? '#25D366' : '#EF4444',
-            android: {
-              channelId: 'recording',
-              ongoing: true,
-              sticky: true,
-              priority: 'max',
-              asForegroundService: true,
-            },
-          },
-          trigger: null,
-        });
-      } catch (err) {
-        console.warn('Failed to schedule notification (expected in Expo Go):', err);
+            text: `Recording ${type === 'whatsapp' ? 'WhatsApp' : 'Phone'} call...`,
+            icon: 'ic_launcher',
+            foregroundServiceType: 'microphone',
+          });
+        } catch (err) {
+          console.warn('Could not start foreground service:', err);
+        }
       }
 
       return { recording };
@@ -205,6 +199,15 @@ export function RecordingsProvider({ children }) {
       setCurrentRecording(null);
       setIsRecording(false);
       setIsPaused(false);
+
+      // Stop the Android foreground service
+      if (Platform.OS === 'android') {
+        try {
+          await VIForegroundService.stopService();
+        } catch (err) {
+          console.warn('Could not stop foreground service:', err);
+        }
+      }
 
       // Dismiss all notifications
       try {
