@@ -1,16 +1,35 @@
 import React, { createContext, useContext, useState, useEffect, useRef } from 'react';
 import * as FileSystem from 'expo-file-system';
+import * as Notifications from 'expo-notifications';
+import { Audio } from 'expo-av';
 
 const METADATA_FILE = FileSystem.documentDirectory + 'recordings.json';
 const RECORDINGS_DIR = FileSystem.documentDirectory + 'recordings/';
+
+// Configure notifications
+Notifications.setNotificationHandler({
+  handleNotification: async () => ({
+    shouldShowAlert: true,
+    shouldPlaySound: false,
+    shouldSetBadge: false,
+  }),
+});
 
 const RecordingsContext = createContext(null);
 
 export function RecordingsProvider({ children }) {
   const [recordings, setRecordings] = useState([]);
-  const isInitialMount = useRef(true);
+  const [currentRecording, setCurrentRecording] = useState(null);
+  const [isRecording, setIsRecording] = useState(false);
+  const [isPaused, setIsPaused] = useState(false);
+  const [duration, setDuration] = useState(0);
+  const [activeCallType, setActiveCallType] = useState('phone');
+  const [startTime, setStartTime] = useState(null);
 
-  // Ensure recordings directory exists
+  const isInitialMount = useRef(true);
+  const timerRef = useRef(null);
+
+  // Ensure recordings directory exists and request notification permissions
   useEffect(() => {
     async function init() {
       const dirInfo = await FileSystem.getInfoAsync(RECORDINGS_DIR);
@@ -28,10 +47,35 @@ export function RecordingsProvider({ children }) {
           console.error('Failed to parse recordings metadata', e);
         }
       }
+
+      // Permissions
+      const { status: existingStatus } = await Notifications.getPermissionsAsync();
+      let finalStatus = existingStatus;
+      if (existingStatus !== 'granted') {
+        const { status } = await Notifications.requestPermissionsAsync();
+        finalStatus = status;
+      }
+
       isInitialMount.current = false;
     }
     init();
   }, []);
+
+  // Timer logic - more robust for background
+  useEffect(() => {
+    if (isRecording && !isPaused && startTime) {
+      timerRef.current = setInterval(() => {
+        const now = Date.now();
+        const diff = Math.floor((now - startTime) / 1000);
+        setDuration(diff);
+      }, 1000);
+    } else {
+      if (timerRef.current) clearInterval(timerRef.current);
+    }
+    return () => {
+      if (timerRef.current) clearInterval(timerRef.current);
+    };
+  }, [isRecording, isPaused, startTime]);
 
   // Persist metadata when recordings change
   useEffect(() => {
@@ -41,12 +85,96 @@ export function RecordingsProvider({ children }) {
     }
   }, [recordings]);
 
+  async function startRecording(type = 'phone') {
+    try {
+      const { status } = await Audio.requestPermissionsAsync();
+      if (status !== 'granted') return { error: 'Permission denied' };
+
+      await Audio.setAudioModeAsync({
+        allowsRecordingIOS: true,
+        playsInSilentModeIOS: true,
+        staysActiveInBackground: true,
+        interruptionModeIOS: Audio.INTERRUPTION_MODE_IOS_DO_NOT_MIX,
+        shouldDuckAndroid: true,
+        interruptionModeAndroid: Audio.INTERRUPTION_MODE_ANDROID_DO_NOT_MIX,
+        playThroughEarpieceAndroid: false,
+      });
+
+      const { recording } = await Audio.Recording.createAsync(
+        Audio.RecordingOptionsPresets.HIGH_QUALITY
+      );
+
+      const now = Date.now();
+      setStartTime(now);
+      setCurrentRecording(recording);
+      setIsRecording(true);
+      setIsPaused(false);
+      setDuration(0);
+      setActiveCallType(type);
+
+      // Show background notification
+      await Notifications.scheduleNotificationAsync({
+        content: {
+          title: "Recording Active",
+          body: `Recording ${type === 'whatsapp' ? 'WhatsApp' : 'Phone'} call...`,
+          sticky: true,
+          color: type === 'whatsapp' ? '#25D366' : '#EF4444',
+        },
+        trigger: null,
+      });
+
+      return { recording };
+    } catch (e) {
+      console.error('Failed to start recording', e);
+      return { error: e.message };
+    }
+  }
+
+  async function pauseRecording() {
+    if (!currentRecording) return;
+    try {
+      if (isPaused) {
+        const now = Date.now();
+        setStartTime(now - (duration * 1000));
+        await currentRecording.startAsync();
+        setIsPaused(false);
+      } else {
+        await currentRecording.pauseAsync();
+        setIsPaused(true);
+      }
+    } catch (e) {
+      console.error('Failed to pause/resume recording', e);
+    }
+  }
+
+  async function stopRecording() {
+    if (!currentRecording) return null;
+    try {
+      await currentRecording.stopAndUnloadAsync();
+      const uri = currentRecording.getURI();
+      const durationFinal = duration;
+      const typeFinal = activeCallType;
+
+      setCurrentRecording(null);
+      setIsRecording(false);
+      setIsPaused(false);
+
+      // Dismiss all notifications
+      await Notifications.dismissAllNotificationsAsync();
+
+      return { uri, duration: durationFinal, type: typeFinal };
+    } catch (e) {
+      console.error('Failed to stop recording', e);
+      return null;
+    }
+  }
+
   async function addRecording(rec) {
     try {
       // Move file to permanent location
       const filename = `recording_${rec.id}.m4a`;
       const permanentUri = RECORDINGS_DIR + filename;
-      
+
       await FileSystem.moveAsync({
         from: rec.uri,
         to: permanentUri
@@ -78,7 +206,20 @@ export function RecordingsProvider({ children }) {
   }
 
   return (
-    <RecordingsContext.Provider value={{ recordings, addRecording, deleteRecording }}>
+    <RecordingsContext.Provider value={{
+      recordings,
+      addRecording,
+      deleteRecording,
+      currentRecording,
+      isRecording,
+      isPaused,
+      duration,
+      activeCallType,
+      startRecording,
+      pauseRecording,
+      stopRecording,
+      setDuration
+    }}>
       {children}
     </RecordingsContext.Provider>
   );

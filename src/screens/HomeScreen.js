@@ -21,9 +21,10 @@ import GlassHeader from '../components/GlassHeader';
 const { width } = Dimensions.get('window');
 
 export default function HomeScreen({ navigation }) {
-  const { recordings, deleteRecording } = useRecordings();
+  const { recordings, deleteRecording, isRecording, duration, activeCallType } = useRecordings();
   const [filter, setFilter] = useState('all');
   const fadeAnim = useRef(new Animated.Value(0)).current;
+  const pulseAnim = useRef(new Animated.Value(1)).current;
 
   useEffect(() => {
     Animated.timing(fadeAnim, {
@@ -32,6 +33,22 @@ export default function HomeScreen({ navigation }) {
       useNativeDriver: true,
     }).start();
   }, []);
+
+  useEffect(() => {
+    let anim;
+    if (isRecording) {
+      anim = Animated.loop(
+        Animated.sequence([
+          Animated.timing(pulseAnim, { toValue: 1.1, duration: 1000, useNativeDriver: true }),
+          Animated.timing(pulseAnim, { toValue: 1, duration: 1000, useNativeDriver: true }),
+        ])
+      );
+      anim.start();
+    } else {
+      pulseAnim.setValue(1);
+    }
+    return () => anim?.stop();
+  }, [isRecording]);
 
   const filtered = recordings.filter(r => {
     if (filter === 'all') return true;
@@ -54,6 +71,12 @@ export default function HomeScreen({ navigation }) {
   const totalDuration = recordings.reduce((acc, r) => acc + (r.duration || 0), 0);
   const phoneCount = recordings.filter(r => r.type === 'phone').length;
   const waCount = recordings.filter(r => r.type === 'whatsapp').length;
+
+  const formatTime = (secs) => {
+    const m = Math.floor(secs / 60);
+    const s = secs % 60;
+    return `${m}:${s.toString().padStart(2, '0')}`;
+  };
 
   return (
     <SafeAreaView style={styles.container} edges={['top', 'bottom']}>
@@ -134,15 +157,25 @@ export default function HomeScreen({ navigation }) {
       )}
 
       {/* FAB */}
-      <TouchableOpacity
-        style={styles.fab}
-        onPress={() => navigation.navigate('Record')}
-        activeOpacity={0.85}
-      >
-        <View style={styles.fabInner}>
-          <Ionicons name="mic" size={28} color={Colors.white} />
-        </View>
-      </TouchableOpacity>
+      <Animated.View style={[styles.fab, { transform: [{ scale: pulseAnim }] }]}>
+        <TouchableOpacity
+          onPress={() => navigation.navigate('Record')}
+          activeOpacity={0.85}
+          style={[
+            styles.fabInner,
+            isRecording && { backgroundColor: activeCallType === 'whatsapp' ? Colors.whatsapp : Colors.recording }
+          ]}
+        >
+          {isRecording ? (
+            <View style={styles.activeFabContent}>
+              <View style={styles.activeDot} />
+              <Text style={styles.activeTime}>{formatTime(duration)}</Text>
+            </View>
+          ) : (
+            <Ionicons name="mic" size={28} color={Colors.white} />
+          )}
+        </TouchableOpacity>
+      </Animated.View>
     </SafeAreaView>
   );
 }
@@ -247,5 +280,21 @@ const styles = StyleSheet.create({
     backgroundColor: Colors.accent,
     alignItems: 'center',
     justifyContent: 'center',
+  },
+  activeFabContent: {
+    alignItems: 'center',
+    justifyContent: 'center',
+  },
+  activeDot: {
+    width: 6,
+    height: 6,
+    borderRadius: 3,
+    backgroundColor: Colors.white,
+    marginBottom: 2,
+  },
+  activeTime: {
+    color: Colors.white,
+    fontSize: 12,
+    fontWeight: 'bold',
   },
 });
