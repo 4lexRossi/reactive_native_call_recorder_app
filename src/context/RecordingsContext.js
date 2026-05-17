@@ -76,7 +76,7 @@ export function RecordingsProvider({ children }) {
       // Create Android notification channel for the foreground service
       if (Platform.OS === 'android') {
         try {
-          await VIForegroundService.createNotificationChannel({
+          await VIForegroundService.getInstance().createNotificationChannel({
             id: 'recording',
             name: 'Call Recording',
             description: 'Keeps call recording alive in background',
@@ -165,7 +165,7 @@ export function RecordingsProvider({ children }) {
       // Start Android foreground service to keep process alive in background
       if (Platform.OS === 'android') {
         try {
-          await VIForegroundService.startService({
+          await VIForegroundService.getInstance().startService({
             channelId: 'recording',
             id: 1001,
             title: '🔴 Recording Active',
@@ -218,7 +218,7 @@ export function RecordingsProvider({ children }) {
       // Stop the Android foreground service
       if (Platform.OS === 'android') {
         try {
-          await VIForegroundService.stopService();
+          await VIForegroundService.getInstance().stopService();
         } catch (err) {
           console.warn('Could not stop foreground service:', err);
         }
